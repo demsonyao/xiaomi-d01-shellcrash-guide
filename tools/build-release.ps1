@@ -28,6 +28,7 @@ $items = @(
     (Join-Path $root '.gitattributes'),
     (Join-Path $root '.gitignore'),
     (Join-Path $root 'README.md'),
+    (Join-Path $root 'README.zh-CN.md'),
     (Join-Path $root 'THIRD_PARTY.md'),
     (Join-Path $root 'docs'),
     (Join-Path $root 'd01-overlay'),

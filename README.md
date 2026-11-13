@@ -1,48 +1,48 @@
-# 小米路由器 Mesh D01：SSH + ShellCrash + Mihomo
+# Xiaomi Mesh Router D01: SSH + ShellCrash + Mihomo
 
-这是一套针对小米路由器 Mesh D01 的分步适配记录。它不是通用小米路由器教程，也不是一键脚本。
+English · [简体中文](README.zh-CN.md)
 
-> 首次公开版 `v1.0.0`。SSH、legacy init、Mihomo、TCP Redir、redir-host、UDP 直连、DNS 修复和重启恢复已在 Windows x64 和目标 D01 上跑通。后续使用出现过间歇断网，故障原因未确认。公开脚本尚待恢复出厂后的完整复演，Linux/macOS 入口尚待实机验收。
+This guide documents a manual setup for the Xiaomi Mesh Router D01. It applies to the hardware and firmware listed below.
 
-实测基线：
+> First public release: `v1.0.0`. SSH, legacy init, Mihomo, TCP Redir, redir-host, direct UDP, the DNS fix, and recovery after reboot were tested on the target D01 using a Windows x64 computer. Intermittent outages occurred during later use, and their cause remains unknown. The public scripts have yet to be tested end to end from a factory reset. The Linux and macOS entry points still need testing on physical hardware.
 
-- 型号：D01
-- ROM：MiWiFi 稳定版 `1.0.72`
-- 内核/架构：Linux `3.14.77` / ARMv7
-- ShellCrash：`1.9.4release`
-- Mihomo：`v1.19.28` ARMv7 UPX
-- 透明代理：IPv4 TCP Redir
-- DNS：redir-host，Mihomo 监听 `:1053`
-- UDP：普通 UDP 与游戏 UDP 直连，不进入 Mihomo
-- IPv6 透明代理：关闭
-- Controller：监听 `:9999`，必须设置 secret；未授权健康检查应返回 HTTP 401
-- 可选面板：Zashboard，安装后默认 `http://192.168.31.1:9999/ui/`
+## Tested setup
 
-## 三步安装主线
+- Model: D01
+- Firmware: MiWiFi stable `1.0.72`
+- Kernel and architecture: Linux `3.14.77` on ARMv7
+- ShellCrash: `1.9.4release`
+- Mihomo: `v1.19.28`, ARMv7 UPX build
+- Transparent proxying: IPv4 TCP Redir
+- DNS: redir-host, with Mihomo listening on `:1053`
+- UDP: regular UDP and game traffic go directly out, bypassing Mihomo
+- IPv6 transparent proxying: disabled
+- Controller API: listens on `:9999` and requires a secret. An unauthenticated health check should return HTTP 401.
+- Optional dashboard: Zashboard, available at `http://192.168.31.1:9999/ui/` by default after installation
 
-真正安装到路由器上的核心只有三步；其他章节是备份、配置和验收：
+## Installation in three steps
 
-### 1. 开启并持久化 SSH
+### 1. Enable SSH and make it persistent
 
-按 [SSH 章节](docs/01-SSH.md) 准备固定 XMiR 版本和 D01 补丁，然后运行统一入口：
+Use the [SSH instructions](docs/01-SSH.md) to prepare the pinned XMiR-Patcher revision and apply the D01 patch. Then run the installer for your platform.
 
-Windows：
+Windows
 
 ```powershell
 .\run.bat enable_ssh_d01.py
 ```
 
-Linux/macOS：
+Linux and macOS
 
 ```bash
 ./run.sh enable_ssh_d01.py
 ```
 
-它仍把三个安全边界清楚分开执行：XMiR SmartController 入口 → 隐藏输入并更换 root 密码 → 安装 D01 Dropbear legacy-init；任一步失败都会停止，不会把密码放进命令行。
+The installer runs three stages. It uses XMiR's SmartController entry point, prompts for a new root password without echoing it, and installs the D01 Dropbear service for legacy init. It stops if any stage fails and keeps passwords off the command line.
 
-### 2. 安装 ShellCrash 框架
+### 2. Install the ShellCrash framework
 
-先完成 [MTD 备份](docs/02-BACKUP.md)，再运行：
+Complete the [MTD backup](docs/02-BACKUP.md) before running the installation.
 
 ```powershell
 .\run.bat install_shellcrash_framework.py
@@ -52,7 +52,7 @@ Linux/macOS：
 ./run.sh install_shellcrash_framework.py
 ```
 
-### 3. 安装 ARMv7 Mihomo 内核
+### 3. Install the ARMv7 Mihomo core
 
 ```powershell
 .\run.bat install_mihomo_armv7.py
@@ -62,7 +62,7 @@ Linux/macOS：
 ./run.sh install_mihomo_armv7.py
 ```
 
-Zashboard 只是可选管理面板，不属于必需核心：
+You can also install the optional Zashboard dashboard.
 
 ```powershell
 .\run.bat install_zashboard.py
@@ -72,64 +72,60 @@ Zashboard 只是可选管理面板，不属于必需核心：
 ./run.sh install_zashboard.py
 ```
 
-不装面板也不等于可以省略 Controller 认证：后续运行时准备会在 secret 缺失时隐藏询问并持久保存密码，未授权 API 必须返回 HTTP 401。
+The Controller API requires authentication even if you skip Zashboard. If the secret is missing, the runtime setup prompts for it without echoing the input and saves it. Unauthenticated API requests must return HTTP 401.
 
-安装完成后不是再装第四个组件，而是按 [配置建议](docs/05-CONFIG.md) 导入自己的完整 YAML，并用 [受控启用与重启验收](docs/04-INSTALL.md#6-导入完整-yaml但保持停机安全锁) 完成：`Redir + redir-host(:1053) + IPv6 关闭 + UDP 直连`。D01 专用自启和防火墙 hook 是 ShellCrash 安装的收尾，不是另一个软件包。
+Follow the [configuration guide](docs/05-CONFIG.md) to import your full YAML, then follow the [controlled activation and reboot checks](docs/04-INSTALL.md#6-导入完整-yaml但保持停机安全锁). The setup uses TCP Redir, redir-host on port 1053, direct UDP, and disabled IPv6 transparent proxying. The D01-specific startup service and firewall hook complete the ShellCrash setup.
 
-## 最终效果和边界
+## Traffic handling and limitations
 
-这套方案能让经过主 D01 的 IPv4 TCP 流量按 Mihomo 规则分流，同时保留真实 DNS 地址，让未被透明代理接管的游戏 UDP 可以正常直连。
+Mihomo applies its routing rules to IPv4 TCP traffic that passes through the main D01. DNS returns real IP addresses, and game UDP goes out directly.
 
-D01 原厂固件实测没有 `/dev/net/tun`，也无法真正插入 TPROXY 内核规则。因此：
+The tested stock firmware lacks `/dev/net/tun` and rejects TPROXY rules. TUN and transparent UDP proxying are therefore unavailable on this setup, even if the dashboard displays those options. Transparent UDP proxying requires a routing platform with TUN or TPROXY support.
 
-- 不支持 TUN；
-- 不支持 UDP TProxy；
-- 面板里出现 TUN/TProxy 选项，不代表内核具备能力；
-- 如果必须让 UDP 也透明代理，应换用具备 TUN/TPROXY 支持的路由系统，而不是继续修改本方案。
+In a two-node wired D01 Mesh, install this setup on the main node that serves as the default gateway. The secondary node continues to provide Wi-Fi access and Mesh backhaul. The main node handles client traffic according to the routing rules.
 
-两台 D01 有线 Mesh 时，只需在作为默认网关的主节点安装。子节点仍负责无线接入和 Mesh 回程，客户端流量最终由主路由分流。
+## Upstream projects and D01 adaptations
 
-## 这套成果来自哪里
+- The SmartController vulnerability is documented in the public research behind CVE-2023-26319.
+- XMiR-Patcher provides the web entry point, device communication, and basic Dropbear deployment.
+- ShellCrash, Mihomo, and Zashboard come from their respective upstream projects.
+- This project adapts and tests Dropbear persistence under legacy init, ShellCrash startup, iptables Redir, firewall hooks, rollback, capability checks, and diagnostics on the D01.
 
-本项目是“上游组件 + D01 适配层”：
+On the tested D01, the original XMiR procedure reliably exposed only Telnet on port 23. The D01 patch adds an ARMv7 detection fallback, CRLF normalization, recovery of an existing Dropbear installation without changing its password, and a startup service for the traditional PID 1 `init`.
 
-- SmartController 漏洞原理来自 CVE-2023-26319 的公开研究；
-- Web 入口、设备通信和基础 Dropbear 部署来自 XMiR-Patcher；
-- ShellCrash、Mihomo、Zashboard 分别来自各自上游；
-- 本项目新增并实测了 D01 的 Dropbear legacy-init 持久化、ShellCrash legacy 启动、iptables Redir、防火墙钩子、失败回滚、能力探测和诊断流程。
+See the [upstream projects and licenses](THIRD_PARTY.md) and [references](docs/REFERENCES.md) for attribution and sources.
 
-原始 XMiR 流程在这台 D01 上曾只稳定得到 Telnet 23 端口。D01 适配补丁增加了 ARMv7 架构回退、CRLF 归一化、已安装 Dropbear 的无改密恢复，以及适用于传统 PID 1 `init` 的启动服务。
+## Detailed documentation
 
-完整引用见 [上游来源与许可证](THIRD_PARTY.md) 和 [参考资料](docs/REFERENCES.md)。
+The linked chapters are in Simplified Chinese.
 
-## 阅读顺序
+1. [Running on Windows, macOS, and Linux](docs/PLATFORMS.md)
+2. [Scope, safety, and network topology](docs/00-SCOPE.md)
+3. [Enabling and persisting SSH](docs/01-SSH.md)
+4. [Making a backup](docs/02-BACKUP.md)
+5. [Checking TUN and TPROXY support](docs/03-CAPABILITY.md)
+6. [Installing ShellCrash, Mihomo, and optional Zashboard](docs/04-INSTALL.md)
+7. [Importing your subscription and rules, and configuring redir-host DNS](docs/05-CONFIG.md)
+8. [Autostart, reboot, and final verification](docs/06-VERIFY.md)
+9. [Troubleshooting and stopping the service safely](docs/07-TROUBLESHOOTING.md)
+10. [File inventory](docs/FILES.md)
+11. [Checking for private data before publishing](docs/SECURITY.md)
 
-1. [Windows、macOS 与 Linux 运行方式](docs/PLATFORMS.md)
-2. [范围、安全与拓扑](docs/00-SCOPE.md)
-3. [开启并持久化 SSH](docs/01-SSH.md)
-4. [先做备份](docs/02-BACKUP.md)
-5. [确认 TUN/TPROXY 能力](docs/03-CAPABILITY.md)
-6. [分步安装 ShellCrash、Mihomo 与可选 Zashboard](docs/04-INSTALL.md)
-7. [导入自己的订阅、规则和 redir-host DNS](docs/05-CONFIG.md)
-8. [自启、重启和最终验收](docs/06-VERIFY.md)
-9. [故障排查与安全停止](docs/07-TROUBLESHOOTING.md)
-10. [完整文件清单与分类](docs/FILES.md)
-11. [公开发布前的脱敏检查](docs/SECURITY.md)
-
-## 仓库结构
+## Repository layout
 
 ```text
 xiaomi-d01-shellcrash-guide/
-├─ README.md
-├─ THIRD_PARTY.md
-├─ docs/                   教程、排障、文件清单和安全说明
-├─ d01-overlay/            覆盖到 XMiR-Patcher 根目录的 D01 脚本
-├─ patches/                针对固定 XMiR commit 的补丁
-├─ examples/               不含真实节点的配置片段
-├─ vendor/                 只记录上游资产及校验值，不提交二进制
-└─ tools/                  打包、校验和公开内容审计
+├── README.md              English README
+├── README.zh-CN.md        Simplified Chinese README
+├── THIRD_PARTY.md         Upstream sources and licenses
+├── docs/                  Instructions, troubleshooting, and security notes
+├── d01-overlay/           D01 scripts copied into the XMiR-Patcher directory
+├── patches/               Patch for the pinned XMiR-Patcher revision
+├── examples/              Configuration snippets with no real proxy nodes
+├── vendor/                Upstream asset references and checksums
+└── tools/                 Packaging and privacy checks
 ```
 
-## 当前发布基线
+## Pinned release assets
 
-本文安装器固定使用 Mihomo `v1.19.28`。框架和内核的固定下载链接及 SHA256 见 [第三方资产](THIRD_PARTY.md#本次实际使用的本地资产)。
+The installer pins Mihomo to `v1.19.28`. See the [third-party asset list](THIRD_PARTY.md#本次实际使用的本地资产) for the framework and core download links and SHA256 checksums.
