@@ -1,4 +1,4 @@
-# 小米路由器 Mesh D01：SSH + ShellCrash + Mihomo 实测教程
+# 小米路由器 Mesh D01：SSH + ShellCrash + Mihomo
 
 这是一套针对小米路由器 Mesh D01 的分步适配记录。它不是通用小米路由器教程，也不是一键脚本。
 
