@@ -130,8 +130,6 @@ xiaomi-d01-shellcrash-guide/
 └─ tools/                  打包、校验和公开内容审计
 ```
 
-私人配置、MTD 镜像、故障归档和最终运行快照应放在仓库外，例如相邻的 `d01-private-recovery` 目录。不要仅依赖 `.gitignore` 保护秘密。
-
 ## 当前发布基线
 
 本文安装器固定使用 Mihomo `v1.19.28`。框架和内核的固定下载链接及 SHA256 见 [第三方资产](THIRD_PARTY.md#本次实际使用的本地资产)。
