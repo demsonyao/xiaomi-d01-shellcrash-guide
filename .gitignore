@@ -1,0 +1,26 @@
+/dist/
+/vendor/*
+!/vendor/README.md
+!/vendor/SHA256SUMS.tested
+
+# Never commit router-specific material.
+**/config.yaml
+**/user.yaml
+**/ShellCrash.cfg
+**/cache.db
+**/*.bin
+**/*.ubi
+**/*.img
+**/*.upx
+**/*.tar.gz
+**/*.metadb
+**/*.mrs
+**/*subscription*.txt
+**/*private-snapshot*/
+**/backups/
+
+# Local tooling noise.
+__pycache__/
+*.pyc
+*.log
+

@@ -1,0 +1,197 @@
+diff --git a/connect5.py b/connect5.py
+index 39c88f9..b0b5137 100644
+--- a/connect5.py
++++ b/connect5.py
+@@ -17,9 +17,10 @@ import json
+ import xmir_base
+ from gateway import *
+ 
+-die_if_sshOk = True
++start_existing_ssh_only = '--start-existing-ssh-only' in sys.argv[1:]
++die_if_sshOk = not start_existing_ssh_only
+ web_password = True
+-if len(sys.argv) > 1 and sys.argv[0].endswith('connect5.py'):
++if len(sys.argv) > 1 and sys.argv[0].endswith('connect5.py') and not start_existing_ssh_only:
+     if sys.argv[1]:
+         web_password = sys.argv[1]
+         die_if_sshOk = False
+@@ -282,6 +283,28 @@ if not sc_activated:
+     reset_smart_task()
+     raise ExploitNotWorked('Exploit "smartcontroller" not working!!!')
+ 
++if start_existing_ssh_only:
++    print('Start the existing Dropbear installation without changing passwords or Telnet ...')
++    exec_cmd(
++        "if [ -x /etc/init.d/dropbear ]; then "
++        "/etc/init.d/dropbear enable ; /etc/init.d/dropbear start ; fi\n"
++        "if ! pidof dropbear >/dev/null 2>&1; then "
++        "if [ -x /etc/crontabs/dropbearmulti/dropbear ]; then "
++        "mkdir -p /etc/dropbear ; chmod 0700 /etc/dropbear ; "
++        "/etc/crontabs/dropbearmulti/dropbear -P /var/run/dropbear.pid -p 22 ; "
++        "fi ; fi"
++    )
++    time.sleep(2)
++    print('Test SSH authentication on port 22 ...')
++    gw.shutdown()
++    gw.use_ssh = True
++    gw.passw = None
++    port = gw._detect_ssh(verbose = 1, interactive = True, contimeout = 8)
++    if port <= 0:
++        raise ExploitNotWorked('Existing Dropbear installation did not reopen SSH port 22')
++    print(f'RECOVERY_ONLY_SUCCESS: SSH is responding on port {port}')
++    raise SystemExit(0)
++
+ #print('Logger ...')
+ #res = exec_cmd("logger hello")
+ # $ tail -n 50 /tmp/messages
+diff --git a/gateway.py b/gateway.py
+index 9694a7d..dea408f 100644
+--- a/gateway.py
++++ b/gateway.py
+@@ -7,7 +7,8 @@ import json
+ import time
+ import datetime
+ import random
+-import hashlib
++import hashlib
++import getpass
+ import subprocess
+ import gzip
+ import base64
+@@ -286,7 +287,7 @@ class Gateway():
+     nonce = "{}_{}_{}_{}".format(dtype, device, int(time.time()), random.randint(1000, 10000))
+     web_pass = self.webpassword
+     if not web_pass:
+-      web_pass = input("Enter device WEB password: ")
++      web_pass = getpass.getpass("Enter device WEB password: ")
+     account_str = (web_pass + self.nonce_key).encode('utf-8')
+     account_str = self.xqhash(account_str)
+     password = (nonce + account_str).encode('utf-8')
+@@ -731,7 +732,7 @@ class Gateway():
+       if psw is None:
+         if not interactive:
+           continue
+-        psw = input('Enter password for "root" user: ')
++        psw = getpass.getpass('Enter password for "root" user: ')
+       for i, port in enumerate(plist):
+         ret = self.check_ssh(ip_addr, port, psw, contimeout = contimeout)
+         if ret >= 0:
+@@ -1266,16 +1267,19 @@ class Gateway():
+     
+   def _install_dropbearmulti(self, force = True):
+     if True:
+-        arch = self.run_cmd("cat /etc/openwrt_release | grep DISTRIB_ARCH=")
+-        if not arch:
+-            return 10, 'TELNET: Cannot read remote file /etc/openwrt_release'
+-        pos = arch.find("DISTRIB_ARCH='")
+-        if pos < 0:
+-            return 20, 'TELNET: Cannot detect arch for remote device'
+-        arch = arch[pos+1:].split("'")[1]
++        arch_info = self.run_cmd("cat /etc/openwrt_release 2>/dev/null | grep DISTRIB_ARCH=")
++        if arch_info and "DISTRIB_ARCH='" in arch_info:
++            arch = arch_info.split("DISTRIB_ARCH='", 1)[1].split("'", 1)[0]
++        else:
++            # Some stock Xiaomi ROMs (notably D01) do not ship OpenWrt's
++            # /etc/openwrt_release.  The kernel architecture is sufficient for
++            # selecting XMiR's statically linked dropbearmulti binary.
++            arch = (self.run_cmd("uname -m") or '').strip()
++        if not arch:
++            return 20, 'TELNET: Cannot detect arch for remote device'
+         print(f'ARCH = {arch}')
+         arch_suffix = None
+-        if arch.startswith('arm_'):
++        if arch.startswith('arm_') or arch.startswith('armv7'):
+             arch_suffix = '_armv7a'
+         if arch.startswith('aarch64'):
+             arch_suffix = '_arm64'
+@@ -1335,9 +1339,18 @@ class Gateway():
+             return 70, f'TELNET: Cannot upload file "{fn_CONF}" to device'
+         if not self.upload('data/payload_ssh/dropbear2.init.d.sh', fn_INITD):
+             return 73, f'TELNET: Cannot upload file "{fn_INITD}" to device'
+-        if not self.upload('data/payload_ssh/dropbear2.install.sh', fn_INSTALL):
+-            return 76, f'TELNET: Cannot upload file "{fn_INSTALL}" to device'
+-        uci = [ "uci set firewall.dropbearmulti=include",
++        if not self.upload('data/payload_ssh/dropbear2.install.sh', fn_INSTALL):
++            return 76, f'TELNET: Cannot upload file "{fn_INSTALL}" to device'
++        # Git on Windows may check these files out with CRLF endings.  BusyBox
++        # then reads the shebang as "/bin/sh\r" and silently fails to execute
++        # the installer.  Normalize the uploaded text files on the router.
++        text_files = f'{fn_CONF} {fn_INITD} {fn_INSTALL}'
++        self.run_cmd(
++            f"for f in {text_files}; do "
++            'tr -d \'\\r\' < "$f" > "$f.lf" && mv "$f.lf" "$f"; '
++            'done'
++        )
++        uci = [ "uci set firewall.dropbearmulti=include",
+                 "uci set firewall.dropbearmulti.type='script'",
+                f"uci set firewall.dropbearmulti.path='{fn_INSTALL}'",
+                 "uci set firewall.dropbearmulti.enabled='1'",
+diff --git a/passw.py b/passw.py
+index bd3d0fd..b202038 100644
+--- a/passw.py
++++ b/passw.py
+@@ -4,7 +4,9 @@
+ import os
+ import sys
+ import time
+-import platform
++import platform
++import getpass
++import shlex
+ 
+ import xmir_base
+ import gateway
+@@ -16,13 +18,14 @@ gw = gateway.Gateway()
+ if len(sys.argv) > 1:
+   new_passw = sys.argv[1]
+ else:
+-  new_passw = input("Enter new password for root user: ")
++  new_passw = getpass.getpass("Enter new password for root user: ")
+ 
+ new_passw = new_passw.strip()
+ if len(new_passw) == 0:
+   die('Typed password is not correct!')
+ 
+-gw.run_cmd('echo -e "{new_passw}\\n{new_passw}" | passwd root'.format(new_passw = new_passw))
++quoted_passw = shlex.quote(new_passw)
++gw.run_cmd("printf '%s\\n%s\\n' {p} {p} | passwd root".format(p = quoted_passw))
+ time.sleep(0.5)
+ gw.ssh_close()
+ if gw.check_ssh(gw.ip_addr, gw.ssh_port, new_passw) != 0:
+diff --git a/python/python38._pth b/python/python38._pth
+index b95c1ff..90e3486 100644
+--- a/python/python38._pth
++++ b/python/python38._pth
+@@ -1,5 +1,6 @@
+-python38.zip
+-.
+-
+-# Uncomment to run site.main() automatically
++python38.zip
++.
++..
++
++# Uncomment to run site.main() automatically
+ #import site
+diff --git a/run.sh b/run.sh
+index 5495d7a..48daefc 100755
+--- a/run.sh
++++ b/run.sh
+@@ -32,14 +32,12 @@ if [ ! -e "$VIRTUAL_ENV" ] || ! type deactivate &> /dev/null ; then
+ 	exit 1
+ fi
+ 
+-SSH2_PKG=`find ./venv -type d -wholename '*/site-packages/ssh2_python*' | wc -l | tr -d ' '`
+-if [ "$SSH2_PKG" = "0" ]; then
++if ! python3 -c 'import certifi, charset_normalizer, idna, pyftpdlib, requests, urllib3; import ssh2.session' >/dev/null 2>&1; then
+ 	# install
+ 	python3 -m pip install -r requirements.txt
+ 	# check
+-	SSH2_PKG=`find ./venv -type d -wholename '*/site-packages/ssh2_python*' | wc -l | tr -d ' '`
+-	if [ "$SSH2_PKG" = "0" ]; then
+-		echo "ERROR: XMiR: python3 package 'ssh2-python' not installed!"
++	if ! python3 -c 'import certifi, charset_normalizer, idna, pyftpdlib, requests, urllib3; import ssh2.session' >/dev/null 2>&1; then
++		echo "ERROR: XMiR: required python3 packages are not installed!"
+ 		deactivate
+ 		exit 1
+ 	fi
